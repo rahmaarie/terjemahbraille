@@ -1,0 +1,134 @@
+@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@700;900&family=Montserrat:wght@400;500;600;700&display=swap');
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    background: #F7F6FB;
+    color: #293044;
+    font-family: "Montserrat", Arial, sans-serif;
+}
+
+/* Navbar dibuat sebagai stacking context tertinggi.
+   Ini mencegah gambar hasil prediksi dan overlay grid menindas navbar saat discroll. */
+.app-header,
+header {
+    position: sticky;
+    top: 0;
+    z-index: 10000;
+    width: 100%;
+    background: #ffffff;
+    isolation: isolate;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+header .nav-container {
+    position: relative;
+    z-index: 10001;
+    width: 100%;
+    max-width: 1920px;
+    margin-inline: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 76px;
+    padding: 0.75rem 2rem;
+    background: #ffffff;
+}
+
+.nav-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.9rem;
+    color: #6E6AAE;
+    text-decoration: none;
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.nav-brand img,
+header .nav-container .nav-logo img {
+    width: 4.5rem;
+    height: auto;
+    display: block;
+}
+
+header .nav-container .nav-items ul {
+    padding-left: 0;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin: 0;
+}
+
+header .nav-container .nav-items li {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+header .nav-container .nav-items li a {
+    text-decoration: none;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: #6E6AAE;
+    padding: .5rem 1.2rem;
+    border-radius: 999px;
+    transition: all .15s ease-in-out;
+}
+
+header .nav-container .nav-items li:hover a {
+    color: #ffffff;
+    background: #8E8BD8;
+}
+
+main {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+footer {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    background-color: #8E8BD8;
+    color: white;
+    padding: 0.6rem 1rem;
+}
+
+footer p {
+    margin: 0;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+@media screen and (max-width: 768px) {
+    header .nav-container {
+        min-height: 64px;
+        padding-inline: 1rem;
+    }
+
+    .nav-brand {
+        font-size: 0.95rem;
+    }
+
+    .nav-brand img,
+    header .nav-container .nav-logo img {
+        width: 3.5rem;
+    }
+}

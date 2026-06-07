@@ -1,0 +1,463 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="result-container">
+    <div class="result-title">
+        <h2>Hasil Terjemahan Braille</h2>
+    </div>
+
+    <div class="result-content">
+        <div class="result-images">
+            <div id="input-image" class="box-container">
+                <p>Gambar Asli</p>
+                <div class="box">
+                    <img src="{{ url_for('static', filename='serving/original_image.jpg') }}?v={{ cache_buster|default(0) }}" alt="Gambar Braille asli">
+                </div>
+            </div>
+
+            <div id="cropped-chars" class="box-container">
+                <p>Gambar Hasil Deteksi</p>
+                <div class="grid-mode-controls">
+                    <button type="button" id="character-grid-btn" class="mode-button" onclick="setGridMode('character')">
+                        Grid Karakter A-Z
+                    </button>
+                    <button type="button" id="syllable-grid-btn" class="mode-button active" onclick="setGridMode('syllable')">
+                        Grid Suku Kata
+                    </button>
+                </div>
+                <div class="box detected-image-box">
+                    <div class="detected-image-wrapper">
+                        <img id="detected-image" src="{{ url_for('static', filename='serving/detected_image.jpg') }}?v={{ cache_buster|default(0) }}" alt="Gambar hasil deteksi Braille">
+                        <div id="detected-grid-overlay"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <hr>
+
+        <div id="result-text" class="box-container simple-result-text">
+            <p>Naskah Suara Pembelajaran</p>
+
+            {% if speech_text %}
+                <div class="predicted-result result-card speech-card">
+                    <p class="speech-script">{{ speech_text|replace('\n', '<br>')|safe }}</p>
+                </div>
+            {% else %}
+                <div class="predicted-result result-card speech-card">
+                    <p class="speech-script">Tidak ada naskah suara yang berhasil dibuat.</p>
+                </div>
+            {% endif %}
+
+            <div class="audio-controls">
+                <div class="audio-button-group">
+                    <button type="button" class="predict-button audio-button" onclick="speakDetectedText()">
+                        ▶ Putar Suara Pembelajaran
+                    </button>
+                    <button type="button" class="predict-button audio-button" onclick="stopSpeech()">
+                        ■ Stop
+                    </button>
+                </div>
+                <p id="voice-status">Tekan tombol Putar Suara untuk membacakan pola suku kata menjadi kata.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="predict-another">
+        <a class="predict-button" href="{{ url_for('predict') }}">Pilih Gambar Lain</a>
+    </div>
+</div>
+
+<script>
+    const characterGridCells = {{ character_cells|default([], true)|tojson }};
+    const syllableGridCells = {{ syllable_cells|default(detected_cells|default([], true), true)|tojson }};
+    const detectedSpeechText = {{ speech_text|default('', true)|tojson }};
+
+    let detectedGridCells = syllableGridCells.length ? syllableGridCells : characterGridCells;
+    let currentGridMode = syllableGridCells.length ? 'syllable' : 'character';
+
+    let soundEnabled = localStorage.getItem('braille_sound_enabled');
+    soundEnabled = soundEnabled === null ? true : soundEnabled === 'true';
+
+    let gridElements = [];
+    let isSpeaking = false;
+    let speechSequence = 0;
+
+    function setVoiceStatus(message) {
+        const status = document.getElementById('voice-status');
+        if (status) {
+            status.textContent = message;
+        }
+    }
+
+    function medianNumber(values) {
+        const numbers = values
+            .map(value => Number(value))
+            .filter(value => Number.isFinite(value) && value > 0)
+            .sort((a, b) => a - b);
+
+        if (!numbers.length) return 0;
+
+        const middle = Math.floor(numbers.length / 2);
+        if (numbers.length % 2 === 0) {
+            return (numbers[middle - 1] + numbers[middle]) / 2;
+        }
+        return numbers[middle];
+    }
+
+    function clampPercent(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+    }
+
+    function updateGridButtons() {
+        const characterBtn = document.getElementById('character-grid-btn');
+        const syllableBtn = document.getElementById('syllable-grid-btn');
+
+        if (characterBtn) characterBtn.classList.toggle('active', currentGridMode === 'character');
+        if (syllableBtn) syllableBtn.classList.toggle('active', currentGridMode === 'syllable');
+    }
+
+    function setGridMode(mode) {
+        stopSpeech(false);
+        currentGridMode = mode;
+        detectedGridCells = mode === 'character' ? characterGridCells : syllableGridCells;
+        updateGridButtons();
+        renderDetectedGrid();
+        setVoiceStatus(mode === 'character'
+            ? 'Mode grid karakter A-Z aktif.'
+            : 'Mode grid suku kata aktif.');
+    }
+
+    function renderDetectedGrid() {
+        const overlay = document.getElementById('detected-grid-overlay');
+        if (!overlay) return;
+
+        overlay.innerHTML = '';
+        gridElements = [];
+
+        const gridSizeMultiplier = currentGridMode === 'character' ? 1.08 : 1.03;
+        const medianWidth = medianNumber(detectedGridCells.map(cell => cell.width));
+        const medianHeight = medianNumber(detectedGridCells.map(cell => cell.height));
+
+        detectedGridCells.forEach((cell) => {
+            const originalLeft = Number(cell.left) || 0;
+            const originalTop = Number(cell.top) || 0;
+            const originalWidth = Number(cell.width) || 0;
+            const originalHeight = Number(cell.height) || 0;
+
+            const autoWidth = Math.max(originalWidth, medianWidth) * gridSizeMultiplier;
+            const autoHeight = Math.max(originalHeight, medianHeight) * gridSizeMultiplier;
+            const centerX = originalLeft + (originalWidth / 2);
+            const centerY = originalTop + (originalHeight / 2);
+            const left = clampPercent(centerX - (autoWidth / 2), 0, 100 - autoWidth);
+            const top = clampPercent(centerY - (autoHeight / 2), 0, 100 - autoHeight);
+
+            const gridCell = document.createElement('span');
+            gridCell.className = 'detected-grid-cell';
+            gridCell.textContent = (cell.text || '').toLowerCase();
+            gridCell.dataset.speak = cell.speak || cell.text || '';
+            gridCell.style.left = left + '%';
+            gridCell.style.top = top + '%';
+            gridCell.style.width = autoWidth + '%';
+            gridCell.style.height = autoHeight + '%';
+
+            overlay.appendChild(gridCell);
+
+            if (gridCell.dataset.speak.trim()) {
+                gridElements.push(gridCell);
+            }
+        });
+    }
+
+    function chooseIndonesianVoice() {
+        const voices = window.speechSynthesis.getVoices();
+        return voices.find(voice => voice.lang && voice.lang.toLowerCase().startsWith('id')) || null;
+    }
+
+    function clearHighlights() {
+        gridElements.forEach(cell => {
+            cell.classList.remove('active');
+            cell.classList.remove('done');
+        });
+    }
+
+    function stopSpeech(showMessage = true) {
+        isSpeaking = false;
+        speechSequence += 1;
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+        clearHighlights();
+        if (showMessage) {
+            setVoiceStatus('Pembacaan suara dihentikan.');
+        }
+    }
+
+    function activateGridCell(index) {
+        gridElements.forEach((cell, i) => {
+            cell.classList.remove('active');
+            if (i < index) {
+                cell.classList.add('done');
+            } else {
+                cell.classList.remove('done');
+            }
+        });
+
+        if (gridElements[index]) {
+            gridElements[index].classList.add('active');
+        }
+    }
+
+    function pauseGridOnFinalWord() {
+        gridElements.forEach(cell => {
+            cell.classList.remove('active');
+        });
+    }
+
+    function finishSpeech(message) {
+        isSpeaking = false;
+        gridElements.forEach(cell => {
+            cell.classList.remove('active');
+            cell.classList.add('done');
+        });
+        setVoiceStatus(message || 'Selesai membacakan hasil deteksi.');
+    }
+
+    function normalizeLearningToken(text) {
+        return String(text || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '')
+            .trim();
+    }
+
+    function parseLearningScript(text) {
+        const script = String(text || '').trim();
+        if (!script) return [];
+
+        return script
+            .split(/[.\n;]+/)
+            .map(part => part.trim())
+            .filter(Boolean)
+            .map(part => {
+                const pieces = part.split('=');
+                if (pieces.length < 2) {
+                    const token = normalizeLearningToken(part);
+                    return token ? { units: [token], word: token } : null;
+                }
+
+                const units = pieces[0]
+                    .split('+')
+                    .map(unit => normalizeLearningToken(unit))
+                    .filter(Boolean);
+                const word = normalizeLearningToken(pieces.slice(1).join('='));
+
+                if (!units.length && !word) return null;
+                return { units, word };
+            })
+            .filter(Boolean);
+    }
+
+    function findGridIndexForUnit(unit, startIndex) {
+        const target = normalizeLearningToken(unit);
+        if (!target || !gridElements.length) return startIndex;
+
+        // Cari mulai dari posisi terakhir agar urutan grid tetap kiri-ke-kanan.
+        for (let i = startIndex; i < gridElements.length; i++) {
+            const cellText = normalizeLearningToken(gridElements[i].dataset.speak || gridElements[i].textContent);
+            if (cellText === target) return i;
+        }
+
+        // Fallback jika hasil prediksi ada duplikasi/urutan sedikit berubah.
+        for (let i = 0; i < gridElements.length; i++) {
+            const cellText = normalizeLearningToken(gridElements[i].dataset.speak || gridElements[i].textContent);
+            if (cellText === target) return i;
+        }
+
+        return Math.min(startIndex, Math.max(gridElements.length - 1, 0));
+    }
+
+    function activateGridForUnit(unit, startIndex) {
+        if (!gridElements.length) return startIndex;
+
+        const selectedIndex = findGridIndexForUnit(unit, startIndex);
+        gridElements.forEach((cell, i) => {
+            cell.classList.remove('active');
+            if (i < selectedIndex) {
+                cell.classList.add('done');
+            }
+        });
+
+        if (gridElements[selectedIndex]) {
+            gridElements[selectedIndex].classList.add('active');
+            gridElements[selectedIndex].classList.remove('done');
+        }
+
+        return selectedIndex + 1;
+    }
+
+    function speakUtterance(text, sequence, onStart, onEnd) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'id-ID';
+        utterance.rate = 0.72;
+        utterance.pitch = 1;
+
+        const voice = chooseIndonesianVoice();
+        if (voice) {
+            utterance.voice = voice;
+        }
+
+        utterance.onstart = function () {
+            if (sequence !== speechSequence) return;
+            if (typeof onStart === 'function') onStart();
+        };
+
+        utterance.onend = function () {
+            if (sequence !== speechSequence) return;
+            if (typeof onEnd === 'function') onEnd();
+        };
+
+        utterance.onerror = function () {
+            if (sequence !== speechSequence) return;
+            isSpeaking = false;
+            setVoiceStatus('Suara gagal diputar. Tekan tombol Putar Suara sekali lagi.');
+        };
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    function speakLearningSequence(items, phraseIndex, unitIndex, gridIndex, sequence) {
+        if (!isSpeaking || sequence !== speechSequence) return;
+
+        if (phraseIndex >= items.length) {
+            finishSpeech('Selesai membacakan pola suku kata menjadi kata.');
+            return;
+        }
+
+        const item = items[phraseIndex];
+        const units = item.units || [];
+        const finalWord = item.word || units.join('');
+
+        if (unitIndex < units.length) {
+            const unit = units[unitIndex];
+            const nextGridIndex = activateGridForUnit(unit, gridIndex);
+            const spokenText = unitIndex === 0 ? unit : 'ditambah ' + unit;
+
+            speakUtterance(
+                spokenText,
+                sequence,
+                function () {
+                    setVoiceStatus('Membaca suku kata: ' + unit + '. Grid ikut berjalan.');
+                },
+                function () {
+                    setTimeout(function () {
+                        speakLearningSequence(items, phraseIndex, unitIndex + 1, nextGridIndex, sequence);
+                    }, 250);
+                }
+            );
+            return;
+        }
+
+        // Saat membaca kata final, grid berhenti sebentar agar tidak menyesatkan orang tua/anak.
+        pauseGridOnFinalWord();
+        speakUtterance(
+            'menjadi ' + finalWord,
+            sequence,
+            function () {
+                setVoiceStatus('Membaca kata: ' + finalWord + '. Grid berhenti sejenak.');
+            },
+            function () {
+                setTimeout(function () {
+                    speakLearningSequence(items, phraseIndex + 1, 0, gridIndex, sequence);
+                }, 650);
+            }
+        );
+    }
+
+    function speakGridCellSequentially(index, sequence) {
+        if (!isSpeaking || sequence !== speechSequence) return;
+
+        if (index >= gridElements.length) {
+            isSpeaking = false;
+            gridElements.forEach(cell => cell.classList.remove('active'));
+            setVoiceStatus('Selesai membacakan hasil deteksi.');
+            return;
+        }
+
+        const cell = gridElements[index];
+        const text = (cell.dataset.speak || cell.textContent || '').trim();
+
+        if (!text) {
+            speakGridCellSequentially(index + 1, sequence);
+            return;
+        }
+
+        activateGridCell(index);
+
+        speakUtterance(
+            text,
+            sequence,
+            function () {
+                setVoiceStatus('Membaca ' + currentGridMode + ': ' + text.toUpperCase());
+            },
+            function () {
+                if (gridElements[index]) {
+                    gridElements[index].classList.remove('active');
+                    gridElements[index].classList.add('done');
+                }
+                setTimeout(() => speakGridCellSequentially(index + 1, sequence), 150);
+            }
+        );
+    }
+
+    function speakDetectedText() {
+        if (!soundEnabled) {
+            setVoiceStatus('Suara sedang OFF.');
+            return;
+        }
+
+        if (!('speechSynthesis' in window)) {
+            setVoiceStatus('Browser ini belum mendukung suara. Gunakan Chrome atau Edge terbaru.');
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+        clearHighlights();
+        speechSequence += 1;
+
+        const learningText = (detectedSpeechText || '').trim();
+        const learningItems = parseLearningScript(learningText);
+        if (learningItems.length) {
+            if (syllableGridCells.length && currentGridMode !== 'syllable') {
+                currentGridMode = 'syllable';
+                detectedGridCells = syllableGridCells;
+                updateGridButtons();
+                renderDetectedGrid();
+            }
+
+            isSpeaking = true;
+            speakLearningSequence(learningItems, 0, 0, 0, speechSequence);
+            return;
+        }
+
+        if (!gridElements.length) {
+            setVoiceStatus('Belum ada Braille yang dapat dibacakan.');
+            return;
+        }
+
+        // Fallback: jika teks pembelajaran belum tersedia, baca sesuai grid aktif.
+        isSpeaking = true;
+        speakGridCellSequentially(0, speechSequence);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        updateGridButtons();
+        renderDetectedGrid();
+
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.onvoiceschanged = function () {};
+        }
+
+        setVoiceStatus('Mode grid ' + (currentGridMode === 'character' ? 'karakter A-Z' : 'suku kata') + ' aktif.');
+    });
+</script>
+{% endblock %}

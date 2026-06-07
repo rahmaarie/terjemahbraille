@@ -1,0 +1,13 @@
+Fitur tambahan:
+1. Tampilan kamera sekarang memiliki 4 sudut panduan seperti scanner/QR Code.
+2. Grid Braille tetap muncul di dalam tampilan kamera.
+3. Saat foto dari kamera atau upload gambar diproses, aplikasi mencoba meluruskan kertas otomatis menggunakan OpenCV:
+   - deteksi tepi kertas
+   - pencarian 4 titik sudut
+   - koreksi perspektif dengan warpPerspective
+4. Jika 4 sudut kertas tidak ditemukan, aplikasi tetap memakai gambar asli agar proses prediksi tidak berhenti.
+
+Saran saat demo:
+- Pastikan semua sudut kertas Braille terlihat di kamera.
+- Gunakan latar yang kontras dengan warna kertas.
+- Jangan terlalu dekat agar tepi kertas masih terlihat.

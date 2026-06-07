@@ -1,0 +1,26 @@
+PANDUAN DEPLOY KE RENDER
+
+File ini sudah disiapkan untuk Render:
+- Procfile
+- runtime.txt
+- render.yaml
+- requirements.txt yang sudah diringkas
+- app.py sudah memakai PORT dari hosting
+
+Langkah deploy:
+1. Upload folder Braille-Translator ke GitHub.
+2. Masuk ke https://render.com.
+3. New + > Web Service.
+4. Connect repository GitHub yang berisi project ini.
+5. Pilih Environment: Python.
+6. Build Command:
+   pip install -r requirements.txt
+7. Start Command:
+   gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 300 app:app
+8. Deploy.
+
+Catatan penting:
+- Kamera browser membutuhkan HTTPS. Link Render sudah HTTPS, jadi kamera bisa berjalan.
+- Hosting gratis bisa cold start/lambat saat pertama dibuka.
+- Dependency TensorFlow + Torch + Ultralytics cukup berat. Jika Render free gagal build karena memory/storage, solusi berikutnya adalah Koyeb/Docker atau mengubah model agar lebih ringan.
+- Jangan training di Render. Render hanya untuk menjalankan prediksi.

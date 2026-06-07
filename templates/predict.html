@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container upload-page">
+    <div class="upload-card">
+        <h2>Terjemahkan Braille</h2>
+        <p class="upload-description">
+            Ambil foto Braille melalui kamera dengan bantuan grid, atau unggah gambar dari perangkat.
+        </p>
+
+        <form id="mainForm" method="POST" enctype="multipart/form-data">
+            <input id="capturedImage" name="captured_image" type="hidden">
+            <input id="enableStraightening" name="enable_straightening" type="hidden" value="1">
+
+            <div class="input-actions">
+                <button class="file-upload-btn" type="button" id="openCameraBtn">
+                    Buka Kamera
+                </button>
+                <button class="file-upload-btn secondary-btn" type="button" onclick="document.getElementById('uploadedFile').click()">
+                    Pilih Gambar
+                </button>
+            </div>
+
+            <div class="camera-panel" id="cameraPanel" aria-live="polite">
+                <div class="camera-frame">
+                    <video id="cameraVideo" autoplay playsinline muted></video>
+                    <div class="scan-window" aria-hidden="true">
+                        <span class="scan-corner scan-corner-tl"></span>
+                        <span class="scan-corner scan-corner-tr"></span>
+                        <span class="scan-corner scan-corner-br"></span>
+                        <span class="scan-corner scan-corner-bl"></span>
+                    </div>
+                    <div class="camera-grid" id="cameraGrid" aria-hidden="true"></div>
+                    <div class="camera-guide-text">Masukkan seluruh kertas Braille ke dalam 4 sudut, lalu sejajarkan tulisan dengan grid.</div>
+                </div>
+                <div class="scan-option">
+                    <label for="straighteningToggle">
+                        <input id="straighteningToggle" type="checkbox" checked>
+                        Luruskan foto otomatis jika kertas miring
+                    </label>
+                </div>
+                <div class="camera-actions">
+                    <button class="file-upload-btn" type="button" id="captureCameraBtn">Ambil Foto</button>
+                    <button class="file-upload-btn danger-btn" type="button" id="closeCameraBtn">Tutup Kamera</button>
+                </div>
+                <p class="camera-note" id="cameraStatus">Kamera siap digunakan.</p>
+            </div>
+
+            <div class="submit-area" id="submitArea">
+                <input id="uploadedFile" name="file" class="file-upload-input" type="file" onchange="readURL(this);" accept="image/*">
+                <div class="drag-text">
+                    <h3>Letakkan gambar di sini, tekan Pilih Gambar, atau gunakan tombol Buka Kamera.</h3>
+                </div>
+            </div>
+            
+            <div class="file-upload-content" id="fileUploadContent">
+                <div class="file-upload-wrapper">
+                    <img src="#" alt="Gambar Braille yang dipilih" class="file-upload-image" id="previewImage">
+                </div>
+                <p class="preview-caption" id="previewCaption">Gambar siap diproses.</p>
+            </div>
+
+            <button type="submit" id="submitBtn" onclick="this.classList.add('button--loading')">
+                <span class="button__text">Kenali Braille</span>
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+    const submitArea = document.getElementById('submitArea');
+    const uploadContent = document.getElementById('fileUploadContent');
+    const previewImage = document.getElementById('previewImage');
+    const previewCaption = document.getElementById('previewCaption');
+    const capturedImage = document.getElementById('capturedImage');
+    const uploadedFile = document.getElementById('uploadedFile');
+    const openCameraBtn = document.getElementById('openCameraBtn');
+    const closeCameraBtn = document.getElementById('closeCameraBtn');
+    const captureCameraBtn = document.getElementById('captureCameraBtn');
+    const cameraPanel = document.getElementById('cameraPanel');
+    const cameraVideo = document.getElementById('cameraVideo');
+    const cameraGrid = document.getElementById('cameraGrid');
+    const cameraStatus = document.getElementById('cameraStatus');
+    const enableStraightening = document.getElementById('enableStraightening');
+    const straighteningToggle = document.getElementById('straighteningToggle');
+
+    let cameraStream = null;
+
+    function buildCameraGrid(rows = 5, columns = 22) {
+        cameraGrid.innerHTML = '';
+        cameraGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+        cameraGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+
+        for (let i = 0; i < rows * columns; i += 1) {
+            const cell = document.createElement('span');
+            cell.className = 'camera-grid-cell';
+            cameraGrid.appendChild(cell);
+        }
+    }
+
+    function setCameraStatus(message) {
+        if (cameraStatus) {
+            cameraStatus.textContent = message;
+        }
+    }
+
+    function showPreview(imageSource, caption) {
+        submitArea.style.display = 'none';
+        previewImage.src = imageSource;
+        uploadContent.style.display = 'block';
+        previewCaption.textContent = caption || 'Gambar siap diproses.';
+    }
+
+    function readURL(input) {
+        if (input.files && input.files[0]) {
+            capturedImage.value = '';
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                showPreview(e.target.result, 'Gambar dari perangkat siap diproses.');
+            };
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    async function openCamera() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setCameraStatus('Browser belum mendukung kamera. Gunakan Chrome atau Edge terbaru.');
+            cameraPanel.style.display = 'block';
+            return;
+        }
+
+        try {
+            buildCameraGrid();
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            });
+            cameraVideo.srcObject = cameraStream;
+            cameraPanel.style.display = 'block';
+            setCameraStatus('Kamera aktif. Pastikan empat sudut kertas terlihat di dalam bingkai, lalu tekan Ambil Foto.');
+        } catch (error) {
+            cameraPanel.style.display = 'block';
+            setCameraStatus('Kamera tidak dapat dibuka. Izinkan akses kamera pada browser, lalu coba lagi.');
+        }
+    }
+
+    function closeCamera() {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+        }
+        cameraVideo.srcObject = null;
+        cameraPanel.style.display = 'none';
+    }
+
+    function captureFromCamera() {
+        if (!cameraStream || cameraVideo.videoWidth === 0 || cameraVideo.videoHeight === 0) {
+            setCameraStatus('Kamera belum siap. Tunggu sebentar, lalu tekan Ambil Foto lagi.');
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = cameraVideo.videoWidth;
+        canvas.height = cameraVideo.videoHeight;
+        const context = canvas.getContext('2d');
+        context.drawImage(cameraVideo, 0, 0, canvas.width, canvas.height);
+
+        const imageData = canvas.toDataURL('image/jpeg', 0.92);
+        capturedImage.value = imageData;
+        enableStraightening.value = straighteningToggle && straighteningToggle.checked ? '1' : '0';
+        uploadedFile.value = '';
+        showPreview(imageData, 'Foto dari kamera siap diproses.');
+        closeCamera();
+    }
+
+    submitArea.addEventListener('dragover', function () {
+        submitArea.classList.add('image-dropping');
+    });
+    
+    submitArea.addEventListener('dragleave', function () {
+        submitArea.classList.remove('image-dropping');
+    });
+
+    if (straighteningToggle) {
+        straighteningToggle.addEventListener('change', function () {
+            enableStraightening.value = straighteningToggle.checked ? '1' : '0';
+        });
+    }
+
+    openCameraBtn.addEventListener('click', openCamera);
+    closeCameraBtn.addEventListener('click', closeCamera);
+    captureCameraBtn.addEventListener('click', captureFromCamera);
+
+    document.addEventListener('DOMContentLoaded', function () {
+        buildCameraGrid();
+    });
+</script>
+{% endblock %}

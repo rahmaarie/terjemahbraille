@@ -1,0 +1,11 @@
+Flask==2.2.3
+Werkzeug==2.2.3
+gunicorn==21.2.0
+opencv-python-headless==4.7.0.72
+Pillow==9.4.0
+numpy==1.23.5
+tensorflow==2.11.0
+keras==2.11.0
+ultralytics==8.0.113
+torch==2.0.1
+torchvision==0.15.2

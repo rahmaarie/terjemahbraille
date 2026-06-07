@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/predict.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/result.css') }}">
+    <title>Sistem Bantu Baca Braille</title>
+</head>
+<body>
+    <header class="app-header">
+        <div class="nav-container">
+            <a class="nav-brand" href="{{ url_for('predict') }}" aria-label="Braille Translator">
+                <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Logo Braille">
+                <span>Sistem Bantu Baca Braille</span>
+            </a>
+        </div>
+    </header>
+
+    <main>{% block content %}{% endblock %}</main>
+
+    <footer>
+        <p>&copy; 2026 Sistem Bantu Baca Braille</p>
+    </footer>
+</body>
+</html>
