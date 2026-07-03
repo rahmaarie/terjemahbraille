@@ -49,7 +49,17 @@ app = Flask(__name__)
 # Batasi ukuran upload agar Render tidak kehabisan memori
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 
-print("APP.PY VERSI BACKGROUND MODEL LOADER BERHASIL TERLOAD", flush=True)
+# MODE AMAN UNTUK RENDER FREE
+# Default = 0 agar TensorFlow + Torch + YOLO tidak diload di Render Free.
+# Jika nanti pakai server RAM besar, set Environment Variable ENABLE_ML=1.
+ENABLE_ML = os.environ.get("ENABLE_ML", "0") == "1"
+
+if ENABLE_ML:
+    print("[INFO] ENABLE_ML=1. Mode deteksi Braille asli aktif.", flush=True)
+else:
+    print("[INFO] ENABLE_ML=0. Mode aman Render Free aktif. Model berat tidak diload.", flush=True)
+
+print("APP.PY VERSI SAFE MODE RENDER FREE BERHASIL TERLOAD", flush=True)
 
 _braille_classifier = None
 _classifier_lock = threading.Lock()
@@ -64,7 +74,7 @@ def log_time(label, start_time):
 
 def resize_image_if_needed(image, max_side=1200):
     """
-    Mengecilkan gambar agar proses YOLO/CNN tidak terlalu berat.
+    Mengecilkan gambar agar proses OpenCV tidak terlalu berat.
     """
     if image is None or image.size == 0:
         return image
@@ -84,8 +94,8 @@ def resize_image_if_needed(image, max_side=1200):
 
 def _load_braille_classifier():
     """
-    Proses asli untuk load model BrailleClassifier.
-    Dibuat terpisah agar bisa dijalankan di background.
+    Load model BrailleClassifier hanya jika ENABLE_ML=1.
+    Jangan dipakai di Render Free karena bisa kehabisan RAM.
     """
     start = time.time()
     print("[INFO] Mulai load BrailleClassifier...", flush=True)
@@ -122,7 +132,7 @@ def _load_braille_classifier():
 
 def _load_classifier_background():
     """
-    Load model di background agar request /result tidak langsung 502.
+    Load model di background hanya jika ENABLE_ML=1.
     """
     global _braille_classifier, _classifier_loading, _classifier_error
 
@@ -148,9 +158,13 @@ def _load_classifier_background():
 
 def start_classifier_loader_once():
     """
-    Memulai loading model sekali saja di background.
+    Memulai loading model sekali saja.
+    Di Render Free fungsi ini tidak akan menjalankan model karena ENABLE_ML=0.
     """
     global _classifier_loading, _classifier_error
+
+    if not ENABLE_ML:
+        return
 
     with _classifier_lock:
         if _braille_classifier is not None or _classifier_loading:
@@ -166,17 +180,21 @@ def start_classifier_loader_once():
 def get_braille_classifier():
     """
     Mengambil classifier jika sudah siap.
-    Jika belum siap, mulai load di background dan kembalikan None.
+    Pada Render Free, fungsi ini mengembalikan None agar aplikasi tidak kehabisan RAM.
     """
+    if not ENABLE_ML:
+        return None
+
     if _braille_classifier is None:
         start_classifier_loader_once()
 
     return _braille_classifier
 
 
-# Mulai load model sejak aplikasi hidup, bukan menunggu user masuk /result.
-# Ini membuat halaman tetap responsif saat model sedang disiapkan.
-start_classifier_loader_once()
+# Jangan load model otomatis di Render Free.
+# Model hanya disiapkan otomatis jika ENABLE_ML=1.
+if ENABLE_ML:
+    start_classifier_loader_once()
 
 
 def order_document_points(points):
@@ -363,13 +381,24 @@ def healthz():
 @app.route("/model-status")
 def model_status():
     """
-    Route tambahan untuk cek status model.
-    Bisa dibuka di browser: /model-status
+    Route untuk dibaca predict.html.
+    Pada mode aman, dibuat ready=True agar tombol Kenali Braille tetap bisa digunakan.
     """
+    if not ENABLE_ML:
+        return {
+            "ready": True,
+            "loading": False,
+            "error": None,
+            "mode": "safe",
+            "message": "Mode aman Render Free aktif. Model berat tidak diload.",
+        }, 200
+
     return {
         "ready": _braille_classifier is not None,
         "loading": _classifier_loading,
         "error": _classifier_error,
+        "mode": "ml",
+        "message": "Mode deteksi Braille asli aktif.",
     }, 200
 
 
@@ -433,6 +462,43 @@ def result():
     start = time.time()
 
     try:
+        if not ENABLE_ML:
+            return render_template_string(
+                """
+                {% extends "base.html" %}
+                {% block content %}
+                <div style="max-width:900px;margin:40px auto;padding:24px;background:#fff;border-radius:12px;text-align:center;">
+                    <h2>Aplikasi Berhasil Berjalan</h2>
+
+                    <p>
+                        Gambar berhasil diunggah dan diproses oleh server.
+                    </p>
+
+                    <p>
+                        Saat ini aplikasi berjalan dalam <b>mode aman Render Free</b>.
+                        Model TensorFlow + YOLO tidak diload agar server tidak kehabisan RAM.
+                    </p>
+
+                    <div style="margin:20px 0;">
+                        <img
+                            src="{{ url_for('static', filename='serving/original_image.jpg') }}?v={{ cache_buster }}"
+                            alt="Gambar Braille yang diunggah"
+                            style="max-width:100%;border-radius:12px;border:1px solid #ddd;"
+                        >
+                    </div>
+
+                    <p>
+                        Untuk menjalankan deteksi Braille asli, gunakan server dengan RAM lebih besar,
+                        lalu aktifkan environment variable <b>ENABLE_ML=1</b> dan pasang kembali dependency ML.
+                    </p>
+
+                    <a href="{{ url_for('predict') }}">Kembali upload gambar</a>
+                </div>
+                {% endblock %}
+                """,
+                cache_buster=int(time.time()),
+            ), 200
+
         classifier = get_braille_classifier()
 
         if classifier is None:
