@@ -1,13 +1,22 @@
 from pathlib import Path
 import os
 
-# WAJIB ditaruh sebelum import cv2 / tensorflow / torch
+# WAJIB ditaruh sebelum import cv2 / tensorflow / torch / ultralytics / matplotlib
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
 os.environ["TF_NUM_INTEROP_THREADS"] = "1"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+# Tambahan untuk Render agar Matplotlib/Ultralytics tidak membuat cache berat di folder default
+os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
+os.environ["MPLBACKEND"] = "Agg"
+os.environ["YOLO_CONFIG_DIR"] = "/tmp/ultralytics"
+os.environ["ULTRALYTICS_CONFIG_DIR"] = "/tmp/ultralytics"
+
+os.makedirs("/tmp/matplotlib", exist_ok=True)
+os.makedirs("/tmp/ultralytics", exist_ok=True)
 
 import base64
 import time
@@ -39,6 +48,8 @@ app = Flask(__name__)
 
 # Batasi ukuran upload agar Render tidak kehabisan memori
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+
+print("APP.PY VERSI RENDER OPTIMASI BERHASIL TERLOAD", flush=True)
 
 _braille_classifier = None
 _classifier_lock = threading.Lock()
@@ -86,12 +97,15 @@ def get_braille_classifier():
                     import tensorflow as tf
                     tf.config.threading.set_intra_op_parallelism_threads(1)
                     tf.config.threading.set_inter_op_parallelism_threads(1)
+                    print("[INFO] TensorFlow thread dibatasi.", flush=True)
                 except Exception as exc:
                     print(f"[WARNING] TensorFlow thread config gagal: {exc}", flush=True)
 
                 try:
                     import torch
                     torch.set_num_threads(1)
+                    torch.set_num_interop_threads(1)
+                    print("[INFO] Torch thread dibatasi.", flush=True)
                 except Exception as exc:
                     print(f"[WARNING] Torch thread config gagal: {exc}", flush=True)
 
@@ -174,14 +188,13 @@ def auto_straighten_document(image):
     height, width = image.shape[:2]
     max_side = max(height, width)
 
-    # Dibuat lebih ringan dari 900 agar Render tidak terlalu berat
     scale = 700.0 / max_side if max_side > 700 else 1.0
 
     if scale != 1.0:
         resized = cv2.resize(
             image,
             (int(width * scale), int(height * scale)),
-            interpolation=cv2.INTER_AREA
+            interpolation=cv2.INTER_AREA,
         )
     else:
         resized = image.copy()
@@ -198,7 +211,7 @@ def auto_straighten_document(image):
     contours, _ = cv2.findContours(
         edges,
         cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE
+        cv2.CHAIN_APPROX_SIMPLE,
     )
 
     if not contours:
@@ -275,7 +288,7 @@ def save_image_with_optional_straightening(image_bytes, output_path, enable_stra
     cv2.imwrite(
         str(output_path),
         image,
-        [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+        [int(cv2.IMWRITE_JPEG_QUALITY), 85],
     )
 
     log_time("Simpan gambar selesai", start)
@@ -315,10 +328,11 @@ def predict():
                 captured_image = captured_image.split(",", 1)[1]
 
             image_bytes = base64.b64decode(captured_image)
+
             save_image_with_optional_straightening(
                 image_bytes,
                 ORIGINAL_IMAGE_ROOT,
-                enable_straightening
+                enable_straightening,
             )
 
             log_time("POST kamera /predict selesai", start)
@@ -336,7 +350,7 @@ def predict():
     save_image_with_optional_straightening(
         image_bytes,
         ORIGINAL_IMAGE_ROOT,
-        enable_straightening
+        enable_straightening,
     )
 
     log_time("POST upload /predict selesai", start)
@@ -387,7 +401,7 @@ def result():
         cv2.imwrite(
             str(DETECTED_IMAGE_ROOT),
             predicted_image,
-            [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+            [int(cv2.IMWRITE_JPEG_QUALITY), 85],
         )
 
         log_time("GET /result selesai total", start)
