@@ -52,14 +52,14 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 # MODE AMAN UNTUK RENDER FREE
 # Default = 0 agar TensorFlow + Torch + YOLO tidak diload di Render Free.
 # Jika nanti pakai server RAM besar, set Environment Variable ENABLE_ML=1.
-ENABLE_ML = os.environ.get("ENABLE_ML", "1") == "1"
+ENABLE_ML = os.environ.get("ENABLE_ML", "0") == "1"
 
 if ENABLE_ML:
     print("[INFO] ENABLE_ML=1. Mode deteksi Braille asli aktif.", flush=True)
 else:
-    print("[INFO] ENABLE_ML=1. Mode aman Render Free aktif. Model berat tidak diload.", flush=True)
+    print("[INFO] ENABLE_ML=0. Mode demo server Render Free aktif. Model berat tidak diload.", flush=True)
 
-print("APP.PY VERSI SAFE MODE RENDER FREE BERHASIL TERLOAD", flush=True)
+print("APP.PY VERSI DEMO RENDER FREE BERHASIL TERLOAD", flush=True)
 
 _braille_classifier = None
 _classifier_lock = threading.Lock()
@@ -159,7 +159,7 @@ def _load_classifier_background():
 def start_classifier_loader_once():
     """
     Memulai loading model sekali saja.
-    Di Render Free fungsi ini tidak akan menjalankan model karena ENABLE_ML=1.
+    Di Render Free fungsi ini tidak akan menjalankan model karena ENABLE_ML=0.
     """
     global _classifier_loading, _classifier_error
 
@@ -382,7 +382,7 @@ def healthz():
 def model_status():
     """
     Route untuk dibaca predict.html.
-    Pada mode aman, dibuat ready=True agar tombol Kenali Braille tetap bisa digunakan.
+    Pada mode demo Render Free, dibuat ready=True agar tombol Kenali Braille tetap bisa digunakan.
     """
     if not ENABLE_ML:
         return {
@@ -390,7 +390,7 @@ def model_status():
             "loading": False,
             "error": None,
             "mode": "safe",
-            "message": "Mode aman Render Free aktif. Model berat tidak diload.",
+            "message": "Mode demo server Render Free aktif.",
         }, 200
 
     return {
@@ -468,15 +468,15 @@ def result():
                 {% extends "base.html" %}
                 {% block content %}
                 <div style="max-width:900px;margin:40px auto;padding:24px;background:#fff;border-radius:12px;text-align:center;">
-                    <h2>Aplikasi Berhasil Berjalan</h2>
+                    <h2>Gambar Berhasil Diproses</h2>
 
                     <p>
-                        Gambar berhasil diunggah dan diproses oleh server.
+                        Sistem berhasil menerima, menyimpan, dan menampilkan gambar Braille yang diunggah.
                     </p>
 
                     <p>
-                        Saat ini aplikasi berjalan dalam <b>mode aman Render Free</b>.
-                        Model TensorFlow + YOLO tidak diload agar server tidak kehabisan RAM.
+                        Aplikasi saat ini berjalan pada <b>mode demo server Render Free</b>.
+                        Mode ini digunakan agar aplikasi tetap stabil dan tidak mengalami error 502.
                     </p>
 
                     <div style="margin:20px 0;">
@@ -488,8 +488,8 @@ def result():
                     </div>
 
                     <p>
-                        Untuk menjalankan deteksi Braille asli, gunakan server dengan RAM lebih besar,
-                        lalu aktifkan environment variable <b>ENABLE_ML=1</b> dan pasang kembali dependency ML.
+                        Untuk menjalankan deteksi Braille otomatis secara penuh, aplikasi perlu dijalankan
+                        pada server dengan RAM lebih besar.
                     </p>
 
                     <a href="{{ url_for('predict') }}">Kembali upload gambar</a>
