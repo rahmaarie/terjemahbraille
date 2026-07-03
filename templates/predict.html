@@ -8,6 +8,13 @@
             Ambil foto Braille melalui kamera dengan bantuan grid, atau unggah gambar dari perangkat.
         </p>
 
+        <div 
+            id="modelStatusBox" 
+            style="margin: 14px 0; padding: 12px 14px; border-radius: 10px; background: #fff7d6; color: #5f4700; font-size: 14px;"
+        >
+            Mengecek kesiapan model Braille...
+        </div>
+
         <form id="mainForm" method="POST" enctype="multipart/form-data">
             <input id="capturedImage" name="captured_image" type="hidden">
             <input id="enableStraightening" name="enable_straightening" type="hidden" value="1">
@@ -90,7 +97,7 @@
                 </p>
             </div>
 
-            <button type="submit" id="submitBtn">
+            <button type="submit" id="submitBtn" disabled>
                 <span class="button__text">Kenali Braille</span>
             </button>
         </form>
@@ -115,9 +122,12 @@
     const enableStraightening = document.getElementById('enableStraightening');
     const straighteningToggle = document.getElementById('straighteningToggle');
     const submitBtn = document.getElementById('submitBtn');
+    const modelStatusBox = document.getElementById('modelStatusBox');
 
     let cameraStream = null;
     let isSubmitting = false;
+    let modelReady = false;
+    let modelStatusTimer = null;
 
     function buildCameraGrid(rows = 5, columns = 22) {
         cameraGrid.innerHTML = '';
@@ -137,11 +147,86 @@
         }
     }
 
+    function hasSelectedImage() {
+        return Boolean(
+            capturedImage.value || 
+            (uploadedFile.files && uploadedFile.files.length > 0)
+        );
+    }
+
+    function setModelStatus(message, type = 'loading') {
+        if (!modelStatusBox) {
+            return;
+        }
+
+        modelStatusBox.textContent = message;
+
+        if (type === 'ready') {
+            modelStatusBox.style.background = '#e7f8ec';
+            modelStatusBox.style.color = '#145c2e';
+        } else if (type === 'error') {
+            modelStatusBox.style.background = '#ffecec';
+            modelStatusBox.style.color = '#8a1f1f';
+        } else {
+            modelStatusBox.style.background = '#fff7d6';
+            modelStatusBox.style.color = '#5f4700';
+        }
+    }
+
+    function updateSubmitButtonState() {
+        if (isSubmitting) {
+            submitBtn.disabled = true;
+            return;
+        }
+
+        submitBtn.disabled = !(modelReady && hasSelectedImage());
+    }
+
+    async function checkModelStatus() {
+        try {
+            const response = await fetch(`/model-status?t=${Date.now()}`, {
+                method: 'GET',
+                cache: 'no-store'
+            });
+
+            if (!response.ok) {
+                throw new Error('Status model tidak dapat dibaca.');
+            }
+
+            const data = await response.json();
+
+            if (data.ready) {
+                modelReady = true;
+                setModelStatus('Model Braille sudah siap. Silakan pilih gambar atau ambil foto.', 'ready');
+
+                if (modelStatusTimer) {
+                    clearInterval(modelStatusTimer);
+                    modelStatusTimer = null;
+                }
+            } else if (data.error) {
+                modelReady = false;
+                setModelStatus(`Model Braille gagal disiapkan: ${data.error}`, 'error');
+            } else if (data.loading) {
+                modelReady = false;
+                setModelStatus('Model Braille sedang disiapkan. Mohon tunggu sekitar 1–3 menit.', 'loading');
+            } else {
+                modelReady = false;
+                setModelStatus('Model Braille belum siap. Sistem sedang memulai proses loading model.', 'loading');
+            }
+        } catch (error) {
+            modelReady = false;
+            setModelStatus('Status model belum bisa dibaca. Tunggu sebentar, lalu coba lagi.', 'error');
+        }
+
+        updateSubmitButtonState();
+    }
+
     function showPreview(imageSource, caption) {
         submitArea.style.display = 'none';
         previewImage.src = imageSource;
         uploadContent.style.display = 'block';
         previewCaption.textContent = caption || 'Gambar siap diproses.';
+        updateSubmitButtonState();
     }
 
     function resizeImageToDataURL(imageSource, maxWidth = 1000, maxHeight = 1000, quality = 0.75) {
@@ -223,10 +308,13 @@
                     showPreview(resizedDataURL, 'Gambar dari perangkat siap diproses.');
                 } catch (error) {
                     alert('Gambar gagal diproses. Silakan pilih gambar lain.');
+                    updateSubmitButtonState();
                 }
             };
 
             reader.readAsDataURL(input.files[0]);
+        } else {
+            updateSubmitButtonState();
         }
     }
 
@@ -346,9 +434,17 @@
             return false;
         }
 
-        if (!capturedImage.value && (!uploadedFile.files || uploadedFile.files.length === 0)) {
+        if (!modelReady) {
+            event.preventDefault();
+            alert('Model Braille masih disiapkan. Mohon tunggu sampai status model siap.');
+            checkModelStatus();
+            return false;
+        }
+
+        if (!hasSelectedImage()) {
             event.preventDefault();
             alert('Silakan unggah gambar atau ambil foto terlebih dahulu.');
+            updateSubmitButtonState();
             return false;
         }
 
@@ -362,10 +458,23 @@
 
     document.addEventListener('DOMContentLoaded', function () {
         buildCameraGrid();
+        checkModelStatus();
+
+        modelStatusTimer = setInterval(function () {
+            if (!modelReady) {
+                checkModelStatus();
+            }
+        }, 8000);
+
+        updateSubmitButtonState();
     });
 
     window.addEventListener('beforeunload', function () {
         closeCamera();
+
+        if (modelStatusTimer) {
+            clearInterval(modelStatusTimer);
+        }
     });
 </script>
 {% endblock %}
