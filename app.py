@@ -49,10 +49,12 @@ app = Flask(__name__)
 # Batasi ukuran upload agar Render tidak kehabisan memori
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 
-print("APP.PY VERSI RENDER OPTIMASI BERHASIL TERLOAD", flush=True)
+print("APP.PY VERSI BACKGROUND MODEL LOADER BERHASIL TERLOAD", flush=True)
 
 _braille_classifier = None
 _classifier_lock = threading.Lock()
+_classifier_loading = False
+_classifier_error = None
 
 
 def log_time(label, start_time):
@@ -80,48 +82,101 @@ def resize_image_if_needed(image, max_side=1200):
     return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
 
+def _load_braille_classifier():
+    """
+    Proses asli untuk load model BrailleClassifier.
+    Dibuat terpisah agar bisa dijalankan di background.
+    """
+    start = time.time()
+    print("[INFO] Mulai load BrailleClassifier...", flush=True)
+
+    try:
+        import tensorflow as tf
+        tf.config.threading.set_intra_op_parallelism_threads(1)
+        tf.config.threading.set_inter_op_parallelism_threads(1)
+        print("[INFO] TensorFlow thread dibatasi.", flush=True)
+    except Exception as exc:
+        print(f"[WARNING] TensorFlow thread config gagal: {exc}", flush=True)
+
+    try:
+        import torch
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+        print("[INFO] Torch thread dibatasi.", flush=True)
+    except Exception as exc:
+        print(f"[WARNING] Torch thread config gagal: {exc}", flush=True)
+
+    from control.classify import BrailleClassifier
+
+    classifier = BrailleClassifier(
+        model_path=str(BASE_DIR / "weights" / "cnn_v1.hdf5"),
+        json_path=str(BASE_DIR / "utils" / "class_labels.json"),
+        symbols_path=str(BASE_DIR / "utils" / "braille_symbols.json"),
+        numbers_path=str(BASE_DIR / "utils" / "braille_numbers.json"),
+        yolo_weight=str(BASE_DIR / "weights" / "yolov8_braille.pt"),
+    )
+
+    log_time("Load BrailleClassifier selesai", start)
+    return classifier
+
+
+def _load_classifier_background():
+    """
+    Load model di background agar request /result tidak langsung 502.
+    """
+    global _braille_classifier, _classifier_loading, _classifier_error
+
+    try:
+        classifier = _load_braille_classifier()
+
+        with _classifier_lock:
+            _braille_classifier = classifier
+            _classifier_error = None
+            _classifier_loading = False
+
+        print("[INFO] BrailleClassifier siap digunakan.", flush=True)
+
+    except Exception as exc:
+        with _classifier_lock:
+            _braille_classifier = None
+            _classifier_error = str(exc)
+            _classifier_loading = False
+
+        print("[ERROR] Load BrailleClassifier gagal:", flush=True)
+        print(traceback.format_exc(), flush=True)
+
+
+def start_classifier_loader_once():
+    """
+    Memulai loading model sekali saja di background.
+    """
+    global _classifier_loading, _classifier_error
+
+    with _classifier_lock:
+        if _braille_classifier is not None or _classifier_loading:
+            return
+
+        _classifier_loading = True
+        _classifier_error = None
+
+    thread = threading.Thread(target=_load_classifier_background, daemon=True)
+    thread.start()
+
+
 def get_braille_classifier():
     """
-    Load model satu kali saja.
-    Jangan load model di dalam route secara berulang.
+    Mengambil classifier jika sudah siap.
+    Jika belum siap, mulai load di background dan kembalikan None.
     """
-    global _braille_classifier
-
     if _braille_classifier is None:
-        with _classifier_lock:
-            if _braille_classifier is None:
-                start = time.time()
-                print("[INFO] Mulai load BrailleClassifier...", flush=True)
-
-                try:
-                    import tensorflow as tf
-                    tf.config.threading.set_intra_op_parallelism_threads(1)
-                    tf.config.threading.set_inter_op_parallelism_threads(1)
-                    print("[INFO] TensorFlow thread dibatasi.", flush=True)
-                except Exception as exc:
-                    print(f"[WARNING] TensorFlow thread config gagal: {exc}", flush=True)
-
-                try:
-                    import torch
-                    torch.set_num_threads(1)
-                    torch.set_num_interop_threads(1)
-                    print("[INFO] Torch thread dibatasi.", flush=True)
-                except Exception as exc:
-                    print(f"[WARNING] Torch thread config gagal: {exc}", flush=True)
-
-                from control.classify import BrailleClassifier
-
-                _braille_classifier = BrailleClassifier(
-                    model_path=str(BASE_DIR / "weights" / "cnn_v1.hdf5"),
-                    json_path=str(BASE_DIR / "utils" / "class_labels.json"),
-                    symbols_path=str(BASE_DIR / "utils" / "braille_symbols.json"),
-                    numbers_path=str(BASE_DIR / "utils" / "braille_numbers.json"),
-                    yolo_weight=str(BASE_DIR / "weights" / "yolov8_braille.pt"),
-                )
-
-                log_time("Load BrailleClassifier selesai", start)
+        start_classifier_loader_once()
 
     return _braille_classifier
+
+
+# Mulai load model sejak aplikasi hidup, bukan menunggu user masuk /result.
+# Ini membuat halaman tetap responsif saat model sedang disiapkan.
+start_classifier_loader_once()
 
 
 def order_document_points(points):
@@ -305,6 +360,19 @@ def healthz():
     return "OK", 200
 
 
+@app.route("/model-status")
+def model_status():
+    """
+    Route tambahan untuk cek status model.
+    Bisa dibuka di browser: /model-status
+    """
+    return {
+        "ready": _braille_classifier is not None,
+        "loading": _classifier_loading,
+        "error": _classifier_error,
+    }, 200
+
+
 @app.route("/predict", methods=["GET", "POST"])
 def predict():
     if request.method == "GET":
@@ -366,6 +434,33 @@ def result():
 
     try:
         classifier = get_braille_classifier()
+
+        if classifier is None:
+            return render_template_string(
+                """
+                {% extends "base.html" %}
+                {% block content %}
+                <div style="max-width:900px;margin:40px auto;padding:24px;background:#fff;border-radius:12px;text-align:center;">
+                    <h2>Model Braille sedang disiapkan</h2>
+                    <p>
+                        Sistem sedang memuat model pengenalan Braille.
+                        Proses pertama dapat memerlukan waktu sekitar 1–3 menit.
+                    </p>
+                    <p>Halaman ini akan memuat ulang otomatis.</p>
+
+                    {% if error %}
+                    <div style="text-align:left;background:#ffecec;padding:14px;border-radius:8px;margin-top:16px;">
+                        <b>Error:</b> {{ error }}
+                    </div>
+                    {% endif %}
+
+                    <meta http-equiv="refresh" content="8">
+                    <a href="{{ url_for('predict') }}">Kembali ke halaman upload</a>
+                </div>
+                {% endblock %}
+                """,
+                error=_classifier_error,
+            ), 200
 
         recognition_start = time.time()
         recognition_result = classifier.recognize_braille(str(ORIGINAL_IMAGE_ROOT))
