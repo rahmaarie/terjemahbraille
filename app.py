@@ -9,7 +9,7 @@ os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
 os.environ["TF_NUM_INTEROP_THREADS"] = "1"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# Tambahan untuk Render agar Matplotlib/Ultralytics tidak membuat cache berat di folder default
+# Cache aman untuk Render
 os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
 os.environ["MPLBACKEND"] = "Agg"
 os.environ["YOLO_CONFIG_DIR"] = "/tmp/ultralytics"
@@ -45,21 +45,19 @@ ORIGINAL_IMAGE_ROOT = SERVING_ROOT / ORIGINAL_IMAGE_FILENAME
 DETECTED_IMAGE_ROOT = SERVING_ROOT / DETECTED_IMAGE_FILENAME
 
 app = Flask(__name__)
-
-# Batasi ukuran upload agar Render tidak kehabisan memori
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 
-# MODE AMAN UNTUK RENDER FREE
-# Default = 0 agar TensorFlow + Torch + YOLO tidak diload di Render Free.
-# Jika nanti pakai server RAM besar, set Environment Variable ENABLE_ML=1.
-ENABLE_ML = os.environ.get("ENABLE_ML", "0") == "1"
+# FULL MODE
+# Default dibuat aktif. Di Render, tetap tambahkan ENABLE_ML=1.
+# Kalau ingin mematikan model, ubah ENABLE_ML=0.
+ENABLE_ML = os.environ.get("ENABLE_ML", "1") == "1"
 
 if ENABLE_ML:
     print("[INFO] ENABLE_ML=1. Mode deteksi Braille asli aktif.", flush=True)
 else:
-    print("[INFO] ENABLE_ML=0. Mode demo server Render Free aktif. Model berat tidak diload.", flush=True)
+    print("[INFO] ENABLE_ML=0. Mode demo aktif. Model berat tidak diload.", flush=True)
 
-print("APP.PY VERSI DEMO RENDER FREE BERHASIL TERLOAD", flush=True)
+print("APP.PY VERSI FULL DETEKSI BRAILLE BERHASIL TERLOAD", flush=True)
 
 _braille_classifier = None
 _classifier_lock = threading.Lock()
@@ -73,9 +71,6 @@ def log_time(label, start_time):
 
 
 def resize_image_if_needed(image, max_side=1200):
-    """
-    Mengecilkan gambar agar proses OpenCV tidak terlalu berat.
-    """
     if image is None or image.size == 0:
         return image
 
@@ -94,8 +89,8 @@ def resize_image_if_needed(image, max_side=1200):
 
 def _load_braille_classifier():
     """
-    Load model BrailleClassifier hanya jika ENABLE_ML=1.
-    Jangan dipakai di Render Free karena bisa kehabisan RAM.
+    Load model TensorFlow CNN + YOLO.
+    Ini butuh RAM besar, tidak aman untuk Render Free.
     """
     start = time.time()
     print("[INFO] Mulai load BrailleClassifier...", flush=True)
@@ -131,9 +126,6 @@ def _load_braille_classifier():
 
 
 def _load_classifier_background():
-    """
-    Load model di background hanya jika ENABLE_ML=1.
-    """
     global _braille_classifier, _classifier_loading, _classifier_error
 
     try:
@@ -158,8 +150,8 @@ def _load_classifier_background():
 
 def start_classifier_loader_once():
     """
-    Memulai loading model sekali saja.
-    Di Render Free fungsi ini tidak akan menjalankan model karena ENABLE_ML=0.
+    Memulai load model sekali saja di background.
+    Tidak dijalankan otomatis saat app boot agar port Render cepat terbaca.
     """
     global _classifier_loading, _classifier_error
 
@@ -178,10 +170,6 @@ def start_classifier_loader_once():
 
 
 def get_braille_classifier():
-    """
-    Mengambil classifier jika sudah siap.
-    Pada Render Free, fungsi ini mengembalikan None agar aplikasi tidak kehabisan RAM.
-    """
     if not ENABLE_ML:
         return None
 
@@ -191,16 +179,7 @@ def get_braille_classifier():
     return _braille_classifier
 
 
-# Jangan load model otomatis di Render Free.
-# Model hanya disiapkan otomatis jika ENABLE_ML=1.
-if ENABLE_ML:
-    start_classifier_loader_once()
-
-
 def order_document_points(points):
-    """
-    Mengurutkan 4 titik menjadi kiri-atas, kanan-atas, kanan-bawah, kiri-bawah.
-    """
     rect = np.zeros((4, 2), dtype="float32")
     points = points.astype("float32")
 
@@ -216,9 +195,6 @@ def order_document_points(points):
 
 
 def four_point_transform(image, points):
-    """
-    Meluruskan area dokumen berdasarkan 4 titik sudut.
-    """
     rect = order_document_points(points)
     top_left, top_right, bottom_right, bottom_left = rect
 
@@ -250,10 +226,6 @@ def four_point_transform(image, points):
 
 
 def auto_straighten_document(image):
-    """
-    Mencari empat sudut kertas lalu melakukan koreksi perspektif.
-    Jika sudut kertas tidak ditemukan, gambar dikembalikan apa adanya.
-    """
     if image is None or image.size == 0:
         return image
 
@@ -341,9 +313,6 @@ def auto_straighten_document(image):
 
 
 def save_image_with_optional_straightening(image_bytes, output_path, enable_straightening=True):
-    """
-    Menyimpan gambar hasil upload/kamera, lalu meluruskannya bila memungkinkan.
-    """
     start = time.time()
 
     np_buffer = np.frombuffer(image_bytes, np.uint8)
@@ -381,17 +350,19 @@ def healthz():
 @app.route("/model-status")
 def model_status():
     """
-    Route untuk dibaca predict.html.
-    Pada mode demo Render Free, dibuat ready=True agar tombol Kenali Braille tetap bisa digunakan.
+    Route ini dipanggil predict.html.
+    Saat ML aktif, route ini juga memulai loading model.
     """
     if not ENABLE_ML:
         return {
-            "ready": True,
+            "ready": False,
             "loading": False,
-            "error": None,
-            "mode": "safe",
-            "message": "Mode demo server Render Free aktif.",
+            "error": "ENABLE_ML=0. Mode deteksi asli belum aktif.",
+            "mode": "demo",
+            "message": "Mode demo aktif.",
         }, 200
+
+    start_classifier_loader_once()
 
     return {
         "ready": _braille_classifier is not None,
@@ -468,17 +439,13 @@ def result():
                 {% extends "base.html" %}
                 {% block content %}
                 <div style="max-width:900px;margin:40px auto;padding:24px;background:#fff;border-radius:12px;text-align:center;">
-                    <h2>Gambar Berhasil Diproses</h2>
-
+                    <h2>Mode Deteksi Belum Aktif</h2>
                     <p>
-                        Sistem berhasil menerima, menyimpan, dan menampilkan gambar Braille yang diunggah.
+                        Gambar berhasil diunggah, tetapi deteksi Braille otomatis belum aktif.
                     </p>
-
                     <p>
-                        Aplikasi saat ini berjalan pada <b>mode demo server Render Free</b>.
-                        Mode ini digunakan agar aplikasi tetap stabil dan tidak mengalami error 502.
+                        Aktifkan <b>ENABLE_ML=1</b> dan gunakan server dengan RAM lebih besar agar deteksi berjalan penuh.
                     </p>
-
                     <div style="margin:20px 0;">
                         <img
                             src="{{ url_for('static', filename='serving/original_image.jpg') }}?v={{ cache_buster }}"
@@ -486,12 +453,6 @@ def result():
                             style="max-width:100%;border-radius:12px;border:1px solid #ddd;"
                         >
                     </div>
-
-                    <p>
-                        Untuk menjalankan deteksi Braille otomatis secara penuh, aplikasi perlu dijalankan
-                        pada server dengan RAM lebih besar.
-                    </p>
-
                     <a href="{{ url_for('predict') }}">Kembali upload gambar</a>
                 </div>
                 {% endblock %}
