@@ -52,12 +52,12 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 # MODE AMAN UNTUK RENDER FREE
 # Default = 0 agar TensorFlow + Torch + YOLO tidak diload di Render Free.
 # Jika nanti pakai server RAM besar, set Environment Variable ENABLE_ML=1.
-ENABLE_ML = os.environ.get("ENABLE_ML", "0") == "1"
+ENABLE_ML = os.environ.get("ENABLE_ML", "1") == "1"
 
 if ENABLE_ML:
     print("[INFO] ENABLE_ML=1. Mode deteksi Braille asli aktif.", flush=True)
 else:
-    print("[INFO] ENABLE_ML=0. Mode aman Render Free aktif. Model berat tidak diload.", flush=True)
+    print("[INFO] ENABLE_ML=1. Mode aman Render Free aktif. Model berat tidak diload.", flush=True)
 
 print("APP.PY VERSI SAFE MODE RENDER FREE BERHASIL TERLOAD", flush=True)
 
@@ -159,7 +159,7 @@ def _load_classifier_background():
 def start_classifier_loader_once():
     """
     Memulai loading model sekali saja.
-    Di Render Free fungsi ini tidak akan menjalankan model karena ENABLE_ML=0.
+    Di Render Free fungsi ini tidak akan menjalankan model karena ENABLE_ML=1.
     """
     global _classifier_loading, _classifier_error
 
