@@ -25,7 +25,26 @@ class BrailleClassifier:
         self.json_path = json_path
         self.symbols_path = symbols_path
         self.numbers_path = numbers_path
-        self.model = load_model(model_path)
+        model_path = str(Path(model_path).resolve())
+
+print("=" * 60)
+print("Memuat model CNN")
+print("Path :", model_path)
+print("=" * 60)
+
+if not Path(model_path).exists():
+    raise FileNotFoundError(
+        f"Model CNN tidak ditemukan:\n{model_path}"
+    )
+
+try:
+    self.model = load_model(model_path)
+    print("Model CNN berhasil dimuat")
+
+except Exception:
+    print("Gagal memuat model CNN")
+    print(traceback.format_exc())
+    raise
         self.vowels = {"a", "i", "u", "e", "o"}
 
     def import_class_file(self):
