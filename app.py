@@ -4,6 +4,7 @@ import base64
 import time
 import traceback
 import numpy as np
+from flask import jsonify
 
 try:
     import cv2
@@ -166,19 +167,43 @@ def auto_straighten_document(image):
 
 
 def save_image_with_optional_straightening(image_bytes, output_path, enable_straightening=True):
-    """Menyimpan gambar hasil upload/kamera, lalu meluruskannya bila memungkinkan."""
-    np_buffer = np.frombuffer(image_bytes, np.uint8)
-    image = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
+    """
+    Menyimpan gambar hasil upload atau kamera.
+    Jika OpenCV tersedia maka gambar diproses terlebih dahulu.
+    Jika tidak, file asli tetap disimpan sehingga aplikasi tidak langsung crash.
+    """
 
-    if image is None:
-        output_path.write_bytes(image_bytes)
-        return False
+    # Pastikan OpenCV berhasil dimuat
+    if cv2 is None:
+        raise RuntimeError(
+            "OpenCV gagal dimuat. "
+            "Pastikan package 'opencv-python-headless' sudah terinstal "
+            "dan semua dependency sistem tersedia."
+        )
 
-    if enable_straightening:
-        image = auto_straighten_document(image)
+    try:
+        np_buffer = np.frombuffer(image_bytes, np.uint8)
 
-    cv2.imwrite(str(output_path), image)
-    return True
+        image = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
+
+        if image is None:
+            output_path.write_bytes(image_bytes)
+            return False
+
+        if enable_straightening:
+            image = auto_straighten_document(image)
+
+        success = cv2.imwrite(str(output_path), image)
+
+        if not success:
+            raise RuntimeError("Gagal menyimpan gambar menggunakan OpenCV.")
+
+        return True
+
+    except Exception as e:
+        raise RuntimeError(
+            f"Gagal memproses gambar: {e}"
+        )
 
 
 @app.route("/")
@@ -225,6 +250,25 @@ def predict():
 
 @app.route("/result")
 def result():
+    @app.route("/model-status")
+def model_status():
+    return jsonify({
+        "status": "ready",
+        "opencv": cv2 is not None,
+        "model_loaded": _braille_classifier is not None
+    })
+        if cv2 is None:
+        return render_template_string(
+            """
+            {% extends "base.html" %}
+            {% block content %}
+            <div style="max-width:900px;margin:40px auto;padding:24px;background:#fff;border-radius:12px;">
+                <h2>OpenCV belum berhasil dimuat.</h2>
+                <p>Pastikan <b>opencv-python-headless</b> telah terinstal pada server.</p>
+            </div>
+            {% endblock %}
+            """
+        ), 500
     if not ORIGINAL_IMAGE_ROOT.exists():
         return redirect(url_for("predict"))
 
