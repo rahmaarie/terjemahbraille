@@ -367,14 +367,32 @@ def model_status():
     global _braille_classifier
 
     try:
-        # Pastikan OpenCV berhasil dimuat
         if cv2 is None:
             return jsonify({
                 "status": "error",
-                "opencv": False,
-                "model_loaded": False,
                 "message": "OpenCV gagal dimuat."
             }), 500
+
+        if _braille_classifier is None:
+            _braille_classifier = get_braille_classifier()
+
+        return jsonify({
+            "status": "ready",
+            "opencv": True,
+            "model_loaded": True
+        })
+
+    except Exception as e:
+        import traceback
+
+        # Cetak ke Runtime Logs Render
+        traceback.print_exc()
+
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
         # Load model jika belum pernah dimuat
         if _braille_classifier is None:
