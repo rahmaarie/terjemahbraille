@@ -1,13 +1,27 @@
-Flask==2.2.3
-Werkzeug==2.2.3
-gunicorn==21.2.0
+Flask==3.0.3
+gunicorn==23.0.0
 
-opencv-python-headless==4.8.1.78
-Pillow==9.5.0
-numpy==1.23.5
+numpy==1.26.4
+pandas==2.2.2
+Pillow==10.4.0
 
-tensorflow-cpu==2.11.0
+opencv-python-headless==4.10.0.84
 
-ultralytics==8.0.113
-torch==2.0.1
-torchvision==0.15.2
+tensorflow==2.16.1
+keras==3.3.3
+
+torch==2.3.1
+torchvision==0.18.1
+ultralytics==8.2.103
+
+matplotlib==3.9.0
+scipy==1.13.1
+h5py==3.11.0
+
+PyYAML==6.0.2
+tqdm==4.67.1
+requests==2.32.3
+psutil==6.1.1
+
+scikit-learn==1.5.1
+imageio==2.35.1
