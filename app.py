@@ -353,13 +353,36 @@ def result():
 
 @app.route("/model-status")
 def model_status():
-    return jsonify(
-        {
+    global _braille_classifier
+
+    try:
+        # Pastikan OpenCV berhasil dimuat
+        if cv2 is None:
+            return jsonify({
+                "status": "error",
+                "opencv": False,
+                "model_loaded": False,
+                "message": "OpenCV gagal dimuat."
+            }), 500
+
+        # Load model jika belum pernah dimuat
+        if _braille_classifier is None:
+            _braille_classifier = get_braille_classifier()
+
+        return jsonify({
             "status": "ready",
+            "opencv": True,
+            "model_loaded": True,
+            "message": "Model Braille siap digunakan."
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
             "opencv": cv2 is not None,
-            "model_loaded": _braille_classifier is not None,
-        }
-    )
+            "model_loaded": False,
+            "message": str(e)
+        }), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
