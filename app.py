@@ -3,15 +3,23 @@ import os
 import base64
 import time
 import traceback
+
 import numpy as np
-from flask import jsonify
 
 try:
     import cv2
 except Exception:
     cv2 = None
-from flask import Flask, redirect, render_template, render_template_string, request, url_for
 
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    render_template,
+    render_template_string,
+    request,
+    url_for,
+)
 BASE_DIR = Path(__file__).resolve().parent
 SERVING_ROOT = BASE_DIR / "static" / "serving"
 SERVING_ROOT.mkdir(parents=True, exist_ok=True)
@@ -250,14 +258,8 @@ def predict():
 
 @app.route("/result")
 def result():
-    @app.route("/model-status")
-def model_status():
-    return jsonify({
-        "status": "ready",
-        "opencv": cv2 is not None,
-        "model_loaded": _braille_classifier is not None
-    })
-        if cv2 is None:
+    # Pastikan OpenCV berhasil dimuat
+    if cv2 is None:
         return render_template_string(
             """
             {% extends "base.html" %}
@@ -269,6 +271,8 @@ def model_status():
             {% endblock %}
             """
         ), 500
+
+    # Pastikan gambar sudah di-upload
     if not ORIGINAL_IMAGE_ROOT.exists():
         return redirect(url_for("predict"))
 
@@ -276,20 +280,36 @@ def model_status():
         classifier = get_braille_classifier()
         recognition_result = classifier.recognize_braille(str(ORIGINAL_IMAGE_ROOT))
 
-        # Versi final mengembalikan hasil karakter, hasil suku kata/kata, teks suara pembelajaran,
-        # serta dua mode grid: karakter dan suku kata. Fallback dipertahankan agar tetap aman
-        # jika file classifier lama tidak sengaja dipakai.
+        # Versi baru mengembalikan 6 nilai
         if len(recognition_result) == 6:
-            predicted_image, character_result, syllable_result, speech_text, character_cells, syllable_cells = recognition_result
+            (
+                predicted_image,
+                character_result,
+                syllable_result,
+                speech_text,
+                character_cells,
+                syllable_cells,
+            ) = recognition_result
+
+        # Kompatibel dengan classifier versi lama
         else:
-            predicted_image, syllable_result, speech_text, syllable_cells = recognition_result
+            (
+                predicted_image,
+                syllable_result,
+                speech_text,
+                syllable_cells,
+            ) = recognition_result
+
             character_result = syllable_result
             character_cells = syllable_cells
 
         if predicted_image is None:
-            raise RuntimeError("Gambar tidak dapat diproses. Coba gunakan foto Braille yang lebih jelas.")
+            raise RuntimeError(
+                "Gambar tidak dapat diproses. Coba gunakan foto Braille yang lebih jelas."
+            )
 
         cv2.imwrite(str(DETECTED_IMAGE_ROOT), predicted_image)
+
         return render_template(
             "result.html",
             cache_buster=int(time.time()),
@@ -308,11 +328,21 @@ def model_status():
             {% extends "base.html" %}
             {% block content %}
             <div style="max-width:900px;margin:40px auto;padding:24px;background:#fff;border-radius:12px;">
-                <h2>Aplikasi berhasil jalan, tetapi proses pengenalan Braille gagal.</h2>
+                <h2>Aplikasi berhasil berjalan, tetapi proses pengenalan Braille gagal.</h2>
+
                 <p><b>Error:</b> {{ error }}</p>
-                <p>Biasanya ini terjadi karena dependency machine learning belum lengkap, file model tidak ditemukan, atau gambar tidak terbaca.</p>
+
+                <p>
+                    Biasanya ini terjadi karena model machine learning tidak berhasil dimuat,
+                    file model tidak ditemukan, dependency belum lengkap,
+                    atau gambar yang diunggah tidak dapat diproses.
+                </p>
+
                 <pre style="white-space:pre-wrap;background:#f4f4f4;padding:16px;border-radius:8px;">{{ details }}</pre>
-                <a href="{{ url_for('predict') }}">Kembali upload gambar</a>
+
+                <a href="{{ url_for('predict') }}">
+                    Kembali upload gambar
+                </a>
             </div>
             {% endblock %}
             """,
@@ -320,6 +350,16 @@ def model_status():
             details=traceback.format_exc(),
         ), 500
 
+
+@app.route("/model-status")
+def model_status():
+    return jsonify(
+        {
+            "status": "ready",
+            "opencv": cv2 is not None,
+            "model_loaded": _braille_classifier is not None,
+        }
+    )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
