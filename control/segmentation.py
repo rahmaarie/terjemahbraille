@@ -1,4 +1,6 @@
 from collections import Counter
+from pathlib import Path
+import traceback
 
 import cv2
 import numpy as np
@@ -11,9 +13,27 @@ class BrailleSegmentation:
     def __init__(self, yolo_weight="weights/yolov8_braille.pt"):
         self.conf = 0.15
         self.image_dim = (100, 150)
-        self.yolo_weight = yolo_weight
-        self.yolo_model = YOLO(self.yolo_weight)
 
+        self.yolo_weight = str(Path(yolo_weight).resolve())
+
+        print("=" * 60)
+        print("Memuat model YOLO")
+        print("Path :", self.yolo_weight)
+        print("=" * 60)
+
+        if not Path(self.yolo_weight).exists():
+            raise FileNotFoundError(
+                f"File model YOLO tidak ditemukan:\n{self.yolo_weight}"
+            )
+
+        try:
+            self.yolo_model = YOLO(self.yolo_weight)
+            print("Model YOLO berhasil dimuat")
+
+        except Exception:
+            print("Gagal memuat model YOLO")
+            print(traceback.format_exc())
+            raise
     def segment_braille(self, image_path):
         """Segmentasi sel Braille dari gambar."""
         image = cv2.imread(image_path)
