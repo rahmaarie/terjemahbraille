@@ -38,16 +38,27 @@ _braille_classifier = None
 def get_braille_classifier():
     """Load model satu kali saja supaya proses prediksi tidak terlalu berat."""
     global _braille_classifier
-    if _braille_classifier is None:
-        from control.classify import BrailleClassifier
 
-        _braille_classifier = BrailleClassifier(
-            model_path=str(BASE_DIR / "weights" / "cnn_v1.hdf5"),
-            json_path=str(BASE_DIR / "utils" / "class_labels.json"),
-            symbols_path=str(BASE_DIR / "utils" / "braille_symbols.json"),
-            numbers_path=str(BASE_DIR / "utils" / "braille_numbers.json"),
-            yolo_weight=str(BASE_DIR / "weights" / "yolov8_braille.pt"),
-        )
+    if _braille_classifier is None:
+        try:
+            from control.classify import BrailleClassifier
+
+            _braille_classifier = BrailleClassifier(
+                model_path=str(BASE_DIR / "weights" / "cnn_v1.hdf5"),
+                json_path=str(BASE_DIR / "utils" / "class_labels.json"),
+                symbols_path=str(BASE_DIR / "utils" / "braille_symbols.json"),
+                numbers_path=str(BASE_DIR / "utils" / "braille_numbers.json"),
+                yolo_weight=str(BASE_DIR / "weights" / "yolov8_braille.pt"),
+            )
+
+            print("=== MODEL BERHASIL DIMUAT ===")
+
+        except Exception as e:
+            import traceback
+            print("=== GAGAL MEMUAT MODEL ===")
+            print(traceback.format_exc())
+            raise
+
     return _braille_classifier
 
 
